@@ -1,109 +1,68 @@
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+import textwrap
 
-# 1. Assume your data is called most_significant_associations
-
-# 2. Target ICD-10 codes
-target_codes = [
-    "E70-E88",   # Metabolic disorders
-    'I10-I1A',   # Hypertensive diseases
-    'N17-N19',   # Acute kidney failure and CKD
-    'E08-E13',   # Diabetes mellitus
-    'E65-E68',   # Obesity and hyperalimentation
-'19',
-    'Z72.0'
-
-]
-
-# 3. Make sure Phenotype column is string and cleaned (strip spaces!)
-most_significant_associations['Phenotype'] = most_significant_associations['Phenotype'].astype(str).str.strip()
-
-# 4. Subset rows where Phenotype matches exactly any of the target codes
-df_target = most_significant_associations[
-    most_significant_associations['Phenotype'].isin(target_codes)
+# Filter the data for neoplasms (chapter 2) and a specific interval
+df_plot = results[
+    (results['chapter'] == 2) &
+    (results['Interval'] == '70-80')
 ].copy()
 
+df_plot['is_propagated'] = df_plot['Phenotype'] != df_plot['Original_Phenotype']
 
-# --- Extract starting age from Interval to sort numerically ---
-# This assumes intervals are in the form like "10-20", "20-30", ">90", etc.
-def extract_start_age(interval):
-    if isinstance(interval, str):
-        if interval.startswith('>'):
-            return int(interval[1:]) + 1
-        try:
-            return int(interval.split('-')[0])
-        except:
-            return np.nan
-    return np.nan
 
-# Apply to create sort key
-most_significant_associations['Interval_Start'] = most_significant_associations['Interval'].apply(extract_start_age)
+# Calculate ARD and prevalence
+df_plot['risk_stone'] = df_plot['Stone_Phentoype'] / df_plot['Total_Stone']
+df_plot['risk_nostone'] = df_plot['NoStone_Phenotype'] / df_plot['Total_NoStone']
+df_plot['ARD'] = df_plot['risk_stone'] - df_plot['risk_nostone']
+df_plot['Prevalence'] = df_plot['Stone_Phentoype']
 
-# Clean and prepare again with sorting
-df_target = most_significant_associations[
-    most_significant_associations['Phenotype'].isin(target_codes)
-].copy()
+# Sort by prevalence and select top 10
+df_plot = df_plot[df_plot['Prevalence'] > 0]
+df_plot = df_plot.sort_values(by='Prevalence', ascending=False).head(10)
 
-df_target['Risk_Difference'] = (
-    (df_target['Stone_Phentoype'] / (df_target['Total_Stone'] )) -
-    (df_target['NoStone_Phenotype'] / (df_target['Total_NoStone'] ))
+# Wrap long phenotype descriptions for y-axis labels
+df_plot['code_description_wrapped'] = df_plot['code_description'].apply(
+    lambda x: '\n'.join(textwrap.wrap(x.strip(), width=40))
 )
 
-df_target = df_target.replace([np.inf, -np.inf], np.nan)
-df_target = df_target.dropna(subset=['Risk_Difference'])
+# Plot settings
+plt.figure(figsize=(14, 10))  # more vertical space
+sns.set(style="whitegrid")
 
-# Sort first by Interval_Start, then by Phenotype
-df_target = df_target.sort_values(['Interval_Start', 'Phenotype'])
+# Bubble plot
+sns.scatterplot(
+    data=df_plot,
+    x='ARD',
+    y='code_description_wrapped',
+    size='Prevalence',
+    hue='ARD',
+    style='is_propagated',  # This automatically picks two marker styles
+    palette=sns.diverging_palette(220, 20, as_cmap=True),
+    sizes=(100, 1000),
+    legend=False
+)
 
-# Recreate mapping
-phenotype_label_map = df_target.drop_duplicates('Phenotype').set_index('Phenotype')['code_description'].to_dict()
-
-# Plot
-plt.figure(figsize=(14, 8))
-
-# Get sorted unique intervals for consistent x-axis ordering
-ordered_intervals = df_target[['Interval', 'Interval_Start']].drop_duplicates().sort_values('Interval_Start')['Interval'].tolist()
-
-# Plot setup
-
-for code in target_codes:
-    subset = df_target[df_target['Phenotype'] == code]
-    if not subset.empty:
-        label = phenotype_label_map.get(code, code)
-
-        # Reindex to ensure consistent x-axis
-        subset = subset.set_index('Interval').reindex(ordered_intervals).reset_index()
-
-        # Plot line first (connect all points)
-        plt.plot(subset['Interval'], subset['Risk_Difference'], label=label, linestyle='-', linewidth=2)
-
-        # Plot each point individually based on significance
-        for _, row in subset.iterrows():
-            if pd.isna(row['Risk_Difference']):
-                continue
-
-            marker_style = 'o' if row['P-Value_Adjusted'] < 0.05 else 'x'
-            marker_color = 'black'
-            plt.plot(row['Interval'], row['Risk_Difference'], marker=marker_style, color=marker_color)
+# Add counts as text
+for _, row in df_plot.iterrows():
+    weight = 'bold' if row['is_propagated'] else 'normal'
+    plt.text(row['ARD'] + 0.01, row['code_description_wrapped'], f"{row['Stone_Phentoype']}",
+             fontsize=8, va='center', ha='left', color='black', fontweight=weight)
 
 
-# Decorate
-plt.xlabel('Age Interval', fontsize=14)
-plt.ylabel('Risk Difference (Stone vs. Control)', fontsize=14)
-plt.title('Absolute Risk Difference of Disease in Stone Formers by Age', fontsize=16)
-plt.legend(title='Disease', fontsize=11, title_fontsize=12)
-plt.xticks(rotation=45)
-plt.grid(True)
-plt.tight_layout()
-# Custom legend handles
-import matplotlib.lines as mlines
+# Decorations
+# Decorations
+plt.axvline(0, color='gray', linestyle='--')
+plt.xlabel('Absolute Risk Difference (ARD)', fontsize=12)
+plt.ylabel('Neoplastic Phenotype', fontsize=12)
+plt.title('Figure 2: Top 10 Neoplastic Phenotypes in Stone Formers (Age 70–80)', fontsize=16)
 
-significant_marker = mlines.Line2D([], [], color='black', marker='o', linestyle='None', label='Significant (p < 0.05)')
-nonsignificant_marker = mlines.Line2D([], [], color='gray', marker='x', linestyle='None', label='Not Significant')
+# Add vertical padding
+plt.ylim(plt.ylim()[0] + 0.5, plt.ylim()[1] - 0.5)
 
-plt.legend(handles=[*plt.gca().get_legend_handles_labels()[0], significant_marker, nonsignificant_marker],
-           title='Disease / Significance', fontsize=11, title_fontsize=12)
 
-# Save
-plt.savefig('risk_difference_by_age_sorted_withchatper19_marker.png', dpi=300)
+plt.tight_layout(pad=3)
+plt.savefig("figure2_neoplasm_top10_bubble_plot.pdf", dpi=1000, format='pdf')
+plt.show()
+

@@ -1,71 +1,4 @@
 import pandas as pd
-
-import pandas as pd
-import ast
-import pandas as pd
-import numpy as np
-import scipy.stats as stats
-import ast
-
-
-merged_CASE_df = pd.read_csv("casetotest_0912.csv")
-merged_Control_Df = pd.read_csv("controltotest_0912.csv")
-ICD_prop = pd.read_csv("icd10_propagation (1) (1).csv")
-
-
-# Convert the 'ancestors' column into a list (array)
-ICD_prop['ancestors'] = ICD_prop['ancestors'].str.split(',')
-
-merged_CASE_df = pd.merge(merged_CASE_df, ICD_prop[['code', 'ancestors']], left_on='diagnosis_code', right_on='code', how='left')
-merged_Control_Df =pd.merge(merged_Control_Df, ICD_prop[['code', 'ancestors']], left_on='diagnosis_code', right_on='code', how='left')
-# Now, we add the 'ancestors' to the 'parents' column, handling the case where 'parents' is NaN (root nodes)
-merged_Case_Df_cleaned = merged_CASE_df.iloc[:, 1:]
-merged_Control_Df_cleaned = merged_Control_Df.iloc[:, 1:]
-# Remove rows where 'parents' column is NaN
-merged_Case_Df_cleaned = merged_CASE_df.dropna(subset=['ancestors'])
-merged_Control_Df_cleaned = merged_Control_Df.dropna(subset=['ancestors'])
-
-icd10_chapter_mapping = [
-    ('A00', 'B99', 1),  # Certain infectious and parasitic diseases
-    ('C00', 'D49', 2),  # Neoplasms
-    ('D50', 'D89', 3),  # Diseases of the blood and blood-forming organs
-    ('E00', 'E89', 4),  # Endocrine, nutritional and metabolic diseases
-    ('F01', 'F99', 5),  # Mental, Behavioral and Neurodevelopmental disorders
-    ('G00', 'G99', 6),  # Diseases of the nervous system
-    ('H00', 'H59', 7),  # Diseases of the eye and adnexa
-    ('H60', 'H95', 8),  # Diseases of the ear and mastoid process
-    ('I00', 'I99', 9),  # Diseases of the circulatory system
-    ('J00', 'J99', 10), # Diseases of the respiratory system
-    ('K00', 'K95', 11), # Diseases of the digestive system
-    ('L00', 'L99', 12), # Diseases of the skin and subcutaneous tissue
-    ('M00', 'M99', 13), # Diseases of the musculoskeletal system
-    ('N00', 'N99', 14), # Diseases of the genitourinary system
-    ('O00', 'O9A', 15), # Pregnancy, childbirth, and the puerperium
-    ('P00', 'P96', 16), # Certain conditions originating in the perinatal period
-    ('Q00', 'Q99', 17), # Congenital malformations
-    ('R00', 'R99', 18), # Symptoms and abnormal findings
-    ('S00', 'T88', 19), # Injury, poisoning
-    ('U00', 'U85', 20), # Codes for special purposes
-    ('V00', 'Y99', 21), # External causes of morbidity
-    ('Z00', 'Z99', 22)  # Factors influencing health status
-]
-def get_chapter(row):
-    # Choose 'Original_Phenotype' if available, otherwise 'Phenotype'
-    code = row['diagnosis_code']
-
-    if pd.notna(code):
-        # Extract the first letter and first two digits (e.g., 'A00')
-        code_prefix = code[:3].upper()
-
-        # Match the code to the correct ICD-10 chapter range
-        for start, end, chapter in icd10_chapter_mapping:
-            if start <= code_prefix <= end:
-                return chapter
-
-    return np.nan  # Return NaN if no match is found or code is NaN
-merged_Control_Df_cleaned['chapter'] = merged_Control_Df_cleaned.apply(get_chapter, axis=1)
-merged_Case_Df_cleaned['chapter'] = merged_Case_Df_cleaned.apply(get_chapter, axis=1)
-import pandas as pd
 import numpy as np
 import ast
 from scipy import stats
@@ -182,4 +115,49 @@ df_results['P-Value_Adjusted'] = multipletests(df_results['P-Value'], method='fd
 df_results['Interval'] = df_results['Interval'].replace(">90", "90-120")
 
 # Save
-df_results.to_csv("results_in_system_parallel.csv", index=False)
+
+import numpy as np
+
+# Define the mapping for ICD-10 chapter ranges
+icd10_chapter_mapping = [
+    ('A00', 'B99', 1),  # Certain infectious and parasitic diseases
+    ('C00', 'D49', 2),  # Neoplasms
+    ('D50', 'D89', 3),  # Diseases of the blood and blood-forming organs
+    ('E00', 'E89', 4),  # Endocrine, nutritional and metabolic diseases
+    ('F01', 'F99', 5),  # Mental, Behavioral and Neurodevelopmental disorders
+    ('G00', 'G99', 6),  # Diseases of the nervous system
+    ('H00', 'H59', 7),  # Diseases of the eye and adnexa
+    ('H60', 'H95', 8),  # Diseases of the ear and mastoid process
+    ('I00', 'I99', 9),  # Diseases of the circulatory system
+    ('J00', 'J99', 10), # Diseases of the respiratory system
+    ('K00', 'K95', 11), # Diseases of the digestive system
+    ('L00', 'L99', 12), # Diseases of the skin and subcutaneous tissue
+    ('M00', 'M99', 13), # Diseases of the musculoskeletal system
+    ('N00', 'N99', 14), # Diseases of the genitourinary system
+    ('O00', 'O9A', 15), # Pregnancy, childbirth, and the puerperium
+    ('P00', 'P96', 16), # Certain conditions originating in the perinatal period
+    ('Q00', 'Q99', 17), # Congenital malformations
+    ('R00', 'R99', 18), # Symptoms and abnormal findings
+    ('S00', 'T88', 19), # Injury, poisoning
+    ('U00', 'U85', 20), # Codes for special purposes
+    ('V00', 'Y99', 21), # External causes of morbidity
+    ('Z00', 'Z99', 22)  # Factors influencing health status
+]
+
+# Function to determine which chapter a code belongs to
+def get_chapter(row):
+    # Choose 'Original_Phenotype' if available, otherwise 'Phenotype'
+    code = row['Original_Phenotype'] if pd.notna(row['Original_Phenotype']) else row['Phenotype']
+    
+    if pd.notna(code):
+        # Extract the first letter and first two digits (e.g., 'A00')
+        code_prefix = code[:3].upper()
+        
+        # Match the code to the correct ICD-10 chapter range
+        for start, end, chapter in icd10_chapter_mapping:
+            if start <= code_prefix <= end:
+                return chapter
+    
+    return np.nan  # Return NaN if no match is found or code is NaN
+
+
